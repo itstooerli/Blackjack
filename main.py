@@ -1,6 +1,25 @@
 import random
 import math
 import copy
+import os
+from enum import Enum
+
+# TODO: Provide option to decide num_decks, initial money, table size
+# TODO: Import time to space out displays
+
+class SeatType(Enum):
+  PLAYER = 0
+  AI = 1
+  DEALER = 2
+
+class HandStatus(Enum):
+  ACTIVE = 0
+  BLACKJACK = 1
+  WINNER = 2
+  TIE = 3
+  LOSER = 4
+  DEALER = 5
+  WAITING = 6
 
 class Card:
   def __init__(self, suit, card, value):
@@ -14,7 +33,7 @@ class Card:
     self.value = value
 
 class Hand:
-  def __init__(self, cards, score, num_aces):
+  def __init__(self, cards, score, num_aces, bet):
     # Stores an array of Cards
     self.cards = cards
     
@@ -24,22 +43,29 @@ class Hand:
     # Stores the number of aces, since in Blackjack, Ace = 11 or 1
     self.num_aces = num_aces
 
+    # If the type is a player/AI, what is current bet up to
+    self.bet = bet
+
+    # Status of the hand
+    self.status = HandStatus.ACTIVE
+
 class Seat:
   def __init__(self, type):
     # Stores the type of seat this is
-    # 0 - Player
-    # 1 - AI 
-    # 2 - Split
     self.type = type
 
-    # Stores the seat's hand
-    self.hand
+    # Stores the seat's hand as list of Hands
+    self.hand = []
     
-    # If the type is a player, how much money does the player have
-    self.money
-    
-    # If the type is a split hand, what seat is it associated with
-    self.splitAssoc
+    # If the type is a player/AI, how much money does the player have
+    self.money = 0
+
+    # If the type is a player/AI, what was initial bet
+    self.base_bet = 100
+
+# Clear the terminal
+def clear():
+    os.system("clear")
 
 def create_deck(num_decks, suit_values, card_values):
   # Define basic components of a deck
@@ -55,47 +81,92 @@ def create_deck(num_decks, suit_values, card_values):
 
   return deck
 
-def deal_cards(deck):
-  # Initialize variables
-  player_cards = []
-  dealer_cards = []
-  player_hand = Hand(player_cards, 0, 0)
-  dealer_hand = Hand(dealer_cards, 0, 0)
-  num_cards = 0
+def setup_table(num_players, player_seat_no, player_money, ai_money):
+  # Initialize the table as list of Seats
+  table = []
+  
+  # Create specified number of players
+  for player_no in range(num_players):
+    # Initialize the player
+    if player_no == player_seat_no - 1:
+      table.append(Seat(SeatType.PLAYER))
+      table[player_no].money = player_money
+    # Create AI seats
+    else:
+      table.append(Seat(SeatType.AI))
+      table[player_no].money = ai_money
 
-  while num_cards < 2:
-    # Dealing the player's card
-    player_card = random.choice(deck)
-    player_hand.cards.append(player_card)
-    player_hand.score += player_card.value
+  # The last seat is always the dealer
+  table.append(Seat(SeatType.DEALER))
+
+  return table
+
+def define_bets(table, ai_money, ai_bet):
+  # Determine bets for every seat
+  for seat in table:  
+    # Player specifies bet
+    if seat.type == SeatType.PLAYER:
+      while (True):
+        print("Current cash pool: " + str(seat.money))
+        player_bet = input("Press enter to keep old bet. Enter new bet: ")
+
+        # If player wants to keep old bet and bet was not 0, then skip
+        if not player_bet and seat.base_bet > 0:
+          break
+        
+        try:
+          player_bet = float(player_bet)
+          if player_bet < 0 or player_bet > seat.money:
+            print("Not enough money. Please try again.")
+            continue
+        except ValueError:
+          print("Not a valid input. Please try again.")
+          continue
+  
+        if player_bet % 0.5 != 0:
+          player_bet = round(player_bet * 2) / 2
+
+        seat.base_bet = player_bet
+        break
     
-    if player_card.card == "A":
-      player_hand.num_aces += 1
-      
-    deck.remove(player_card)
+    # Define AI bet
+    elif seat.type == 1:
+      # If the ai doesn't have enough money to bet/double down/split, reload bank
+      if ai_bet * 4 > seat.money:
+        seat.money = ai_money
+      seat.base_bet = ai_bet
+    
+    # Skip dealer
+    else:
+      continue
 
-    # Dealing the dealer's card
-    dealer_card = random.choice(deck)
-    dealer_hand.cards.append(dealer_card)
-    dealer_hand.score += dealer_card.value
+def deal_cards(deck, table):
+  # Initialize each seat's hand
+  for seat in table:
+    seat.hand = [Hand([], 0, 0, seat.base_bet)]
 
-    if dealer_card.card == "A":
-      dealer_hand.num_aces += 1
-      
-    deck.remove(dealer_card)
+  table[-1].hand[0].status = HandStatus.DEALER
+
+  # Deal each seat 2 cards
+  num_cards = 0
+  while num_cards < 2:
+    for seat in table:
+      new_card = random.choice(deck)
+      seat.hand[0].cards.append(new_card)
+      seat.hand[0].score += new_card.value
+
+      if new_card.card == "A":
+        seat.hand[0].num_aces += 1
+
+      deck.remove(new_card)
+
+      # If hand receives two aces, treat one of the aces as a 1
+      if seat.hand[0].score == 22:
+        seat.hand[0].cards[1].value = 1
+        seat.hand[0].score = 12
+        seat.hand[0].num_aces -= 1
 
     num_cards = num_cards + 1
-
-  # If hand receives two aces, treat one of the aces as a 1
-  if player_hand.score == 22:
-    player_cards[1].value = 1
-    player_hand.score = 12
-
-  if dealer_hand.score == 22:
-    dealer_cards[1].value = 1
-    dealer_hand.score = 12
-  
-  return player_hand, dealer_hand
 
 def deal_new_card(deck, hand):
   # Deal a new card from the provided deck to the provided cards and update the provided score
@@ -111,9 +182,18 @@ def deal_new_card(deck, hand):
     hand.score -= 10
     hand.num_aces -= 1
 
-def display_cards(player_hand, dealer_hand, hidden):
-  # Display dealer's cards, if hidden then only first card is shown
-  print("Dealer's cards:", end=" ")
+    for card in hand.cards:
+      if card.card == "A":
+        card.value = 1
+        break
+
+def display_table(table, hidden):
+  clear()
+  
+  # Display dealer's cards first, if hidden then only first card is shown
+  dealer_hand = table[-1].hand[0]
+  
+  print("\nDealer's cards:", end="\n\t")
   if hidden:
     print(str(dealer_hand.cards[0].card) + str(dealer_hand.cards[0].suit) + " XX", end=" ")
     print("Value: " + str(dealer_hand.cards[0].value))
@@ -122,30 +202,195 @@ def display_cards(player_hand, dealer_hand, hidden):
       print(str(card.card) + str(card.suit), end=" ")
     print("Value: " + str(dealer_hand.score))
 
-  # Display player's cards
-  print("Player's cards:", end=" ")
-  for card in player_hand.cards:
-    print(str(card.card) + str(card.suit), end=" ")
+  # Display every other seat's cards
+  for seat in table:
+    if seat.type == SeatType.PLAYER:
+      print("\nPlayer's cards " + "(money: " + str(seat.money) + "):", end="")
+    elif seat.type == SeatType.AI:
+      print("\nAI's cards " + "(money: " + str(seat.money) + "):", end="")
+    else:
+      continue
 
-  print("Value: " + str(player_hand.score))
-
+    for hand in seat.hand:
+      print("\n\t", end="")
+      for card in hand.cards:
+        print(str(card.card) + str(card.suit), end=" ")
+      print("Value: " + str(hand.score) + "\t(bet: " + str(hand.bet) + ")" + "\t" + str(hand.status.name))
+    
   print()
-
-def ask_continue_game():
-  player_choice = input("Enter Q to quit or any other key to continue: ")
-  print()
-  return player_choice.upper() != "Q"
 
 def shuffle_deck(new_deck):
   curr_deck = copy.deepcopy(new_deck)
   cutoff = random.randrange(math.floor(len(new_deck) * 0.25), math.floor(len(new_deck) * 0.5))
   return curr_deck, cutoff
 
-def blackjack_game(num_decks):
-  # TODO: Provide option to decide num_decks as input, initial money, how often cards are cleared
-  # TODO: Provide option to add more AI players
-  # TODO: Implement Betting (Insurance, Double Down, Split)
-  # TODO: Import time to space out displays
+def double_down(curr_deck, hand):
+  hand.bet *= 2
+  deal_new_card(curr_deck, hand)
+  hand.status = HandStatus.WAITING
+
+def split_hand(curr_deck, seat, hand, split_card):
+  # Remove the split card from the current hand
+  hand.score -= split_card.value
+  hand.cards.pop()
+
+  # Create new hand
+  if split_card.card == "A":
+    split_card.value = 11
+    hand.num_aces -= 1
+    seat.hand.append(Hand([split_card], split_card.value, 1, seat.base_bet))
+  else:
+    seat.hand.append(Hand([split_card], split_card.value, 0, seat.base_bet))
+  
+  # Deal both hands a new card
+  deal_new_card(curr_deck, hand)
+  deal_new_card(curr_deck, seat.hand[-1])
+  
+# AI hits if score is less than 17; otherwise stand
+def play_AI_hand_naive_strategy(curr_deck, table, seat, hand):
+  while hand.score < 17:  
+    deal_new_card(curr_deck, hand)
+  
+  if hand.score > 21:
+    hand.status = HandStatus.LOSER
+  else:
+    hand.status = HandStatus.WAITING
+
+
+def play_AI_hand_basic_strategy(curr_deck, table, seat, hand):
+  """
+  # Defining Basic Strategy
+  # - Always split As and 8s
+  # - Never split 5s and 10s
+  # - Split 2s and 3s against Dealer 2-7
+  # - Split 4s against Dealer 5-6
+  # - Split 6s against Dealer 2-6
+  # - Split 7s against Dealer 2-7
+  # - Split 9s against Dealer 2-6 or 8-9
+  # - Double hard 9 against Dealer 3-6
+  # - Double hard 10 against Dealer 2-9
+  # - Double hard 11 against Dealer 2-K 
+  # - Double soft 13 or 14 against Dealer 5-6
+  # - Double soft 15 or 16 against Dealer 4-6
+  # - Double soft 17 or 18 against Dealer 3-6
+  # - Always hit hard 11 or less
+  # - Stand on hard 12 against dealer 4-6, otherwise hit
+  # - Stand on hard 13-16 against dealer 2-6, otherwise hit
+  # - Always stand on hard 17 or more
+  # - Always hit soft 17 or less
+  # - Stand on soft 18 except hit against Dealer 9-A 
+  # - Always stand on soft 19 or more
+  """
+  
+  dealer_shown_card = table[-1].hand[0].cards[0]
+
+  while hand.score < 21:
+    if len(hand.cards) == 2:
+      # Assess Split
+      if hand.cards[0].card == hand.cards[1].card:
+        # Only need to look at card and not value because we never split 10s anyways
+        split_card = hand.cards[1]
+  
+        if split_card.card == "A":
+          split_hand(curr_deck, seat, hand, split_card)
+          seat.hand[-1].status = HandStatus.WAITING
+          hand.status = HandStatus.WAITING
+          break
+        elif split_card.card in ("2", "3"):
+          if dealer_shown_card.value in (2,3,4,5,6,7):
+            split_hand(curr_deck, seat, hand, split_card)
+            continue
+        elif split_card.card == "4":
+          if dealer_shown_card.value in (5,6):
+            split_hand(curr_deck, seat, hand, split_card)
+            continue
+        elif split_card.card == "5":
+          pass
+        elif split_card.card == "6":
+          if dealer_shown_card.value in (2,3,4,5,6):
+            split_hand(curr_deck, seat, hand, split_card)
+            continue
+        elif split_card.card == "7":
+          if dealer_shown_card.value in (2,3,4,5,6,7):
+            split_hand(curr_deck, seat, hand, split_card)
+            continue
+        elif split_card.card == "8":
+          split_hand(curr_deck, seat, hand, split_card)
+          continue
+        elif split_card.card == "9":
+          if dealer_shown_card.value in (2,3,4,5,6,8,9):
+            split_hand(curr_deck, seat, hand, split_card)
+            continue
+        else:  # 10, J, Q, K
+          pass
+
+      # Assess Double
+      if hand.num_aces == 0:
+        if hand.score == 9:
+          if dealer_shown_card.value in (3,4,5,6):  
+            double_down(curr_deck, hand)
+            break
+        elif hand.score == 10:
+          if dealer_shown_card.value in (2,3,4,5,6,7,8,9):
+            double_down(curr_deck, hand)
+            break
+        elif hand.score == 11:
+          if dealer_shown_card.value in (2,3,4,5,6,7,8,9,10):
+            double_down(curr_deck, hand)
+            break
+      else:
+        if hand.score in (13,14):
+          if dealer_shown_card.value in (5,6):
+            double_down(curr_deck, hand)
+            break
+        elif hand.score in (15,16):
+          if dealer_shown_card.value in (4,5,6):
+            double_down(curr_deck, hand)
+            break
+        elif hand.score in (17,18):
+          if dealer_shown_card.value in (3,4,5,6):
+            double_down(curr_deck, hand)
+            break
+  
+    if hand.num_aces == 0:
+      if hand.score <= 11:
+        deal_new_card(curr_deck, hand)
+      elif hand.score == 12:
+        if dealer_shown_card.value in (4,5,6):
+          hand.status = HandStatus.WAITING
+          break
+        else:
+          deal_new_card(curr_deck, hand)
+      elif hand.score in (13,14,15,16):
+        if dealer_shown_card.value in (2,3,4,5,6):
+          hand.status = HandStatus.WAITING
+          break
+        else:
+          deal_new_card(curr_deck, hand)
+      else:
+        hand.status = HandStatus.WAITING
+        break
+    else:
+      if hand.score <= 17:
+        deal_new_card(curr_deck, hand)
+      elif hand.score == 18:
+        if dealer_shown_card.value in (9,10,11):
+          deal_new_card(curr_deck, hand)
+        else:
+          hand.status = HandStatus.WAITING
+          break
+      else:
+        hand.status = HandStatus.WAITING
+        break
+  if hand.score > 21:
+    hand.status = HandStatus.LOSER
+
+def ask_continue_game():
+  player_choice = input("Enter Q to quit or any other key to continue: ")
+  print()
+  return player_choice.upper() != "Q"
+  
+def blackjack_game(num_decks, num_players, player_seat_no, player_money):
 
   # Define suit values for blackjack
   suit_values = {"Spades":"\u2664", "Hearts":"\u2661", "Clubs":"\u2667", "Diamonds":"\u2662"}
@@ -157,8 +402,12 @@ def blackjack_game(num_decks):
   new_deck = create_deck(num_decks, suit_values, card_values)
   curr_deck, cutoff = shuffle_deck(new_deck)  
 
-  # Initialize buy-in
-  player_money = 1000
+  # Define AI variables
+  ai_money = 1000000
+  ai_bet = 100
+  
+  # Setup table
+  table = setup_table(num_players, player_seat_no, player_money, ai_money)
   
   # Play Game
   while(True):
@@ -168,116 +417,239 @@ def blackjack_game(num_decks):
     if len(curr_deck) < cutoff:
       curr_deck, cutoff = shuffle_deck(new_deck)  
 
-    while (True):
-      print("Current cash pool: " + str(player_money))
-      player_bet = input("Enter bet: ")
+    # Define bets for each seat for this round
+    define_bets(table, ai_money, ai_bet)
 
-      try:
-        player_bet = float(player_bet)
-        if player_bet < 0 or player_bet > player_money:
-          print("Not enough money. Please try again.")
-          continue
-      except ValueError:
-        print("Not a valid input. Please try again.")
-        continue
-
-      if player_bet % 0.5 != 0:
-        player_bet = round(player_bet * 2) / 2
-      
-      break
-      
     # Deal the new hand
-    player_hand, dealer_hand = deal_cards(curr_deck)
-    display_cards(player_hand, dealer_hand, True)
+    deal_cards(curr_deck, table)
+    display_table(table, True)
 
-    # Check if player has blackjack
-    if player_hand.score == 21:
-      display_cards(player_hand, dealer_hand, False)
-      if dealer_hand.score == 21:
-        print("Stand-off!")
-        if ask_continue_game():
-          continue
-        else:
-          break
-      else:
-        print("Blackjack!")
-        player_money += player_bet * 1.5
-        if ask_continue_game():
-          continue
-        else:
-          break
-
-    # Check if dealer has blackjack
+    # Check if seats have blackjack
+    dealer_hand = table[-1].hand[0]
     if dealer_hand.score == 21:
-      display_cards(player_hand, dealer_hand, False)
-      print("Dealer has blackjack! Player loses.")
-      player_money -= player_bet
-      if ask_continue_game():
-        continue
-      else:
-        break
-
-    # Player plays
-    while player_hand.score < 21:
-      if len(player_hand.cards) == 2:
-        player_choice = input("Enter H to hit, D to double down, S to stand: ")
-        if (len(player_choice) != 1 or player_choice.upper() not in ("H", "D", "S")):
-          print("Invalid Choice.")
+      for seat in table:
+        if seat.type == SeatType.DEALER:
           continue
-      else:
-        player_choice = input("Enter H to hit, S to stand: ")
-        if (len(player_choice) != 1 or player_choice.upper() not in ("H", "S")):
-          print("Invalid Choice.")
-          continue
-
-      # Player Hits
-      if player_choice.upper() == "H":
-        deal_new_card(curr_deck, player_hand)
-        display_cards(player_hand, dealer_hand, True)
-      # Player Doubles Down
-      elif player_choice.upper() == "D":
-        player_bet *= 2
-        deal_new_card(curr_deck, player_hand)
-        display_cards(player_hand, dealer_hand, True)
-        break
-      # Player Stands
-      elif player_choice.upper() == "S":
-        break
-
-    # Player Busts
-    if player_hand.score > 21:
-      display_cards(player_hand, dealer_hand, False)
-      print("Player Busts! Player loses.")
-      player_money -= player_bet
-      if ask_continue_game():
-        continue
-      else:
-        break
-
-    # Dealer Hits
-    while dealer_hand.score < 17:
-      deal_new_card(curr_deck, dealer_hand)
-      display_cards(player_hand, dealer_hand, False)
-
-    # Determine Winners/Payouts
-    display_cards(player_hand, dealer_hand, False)
-    if dealer_hand.score > 21:
-      print("Dealer Busts! Player Wins.")
-      player_money += player_bet
-    elif player_hand.score == dealer_hand.score:
-      print("Stand-off!")
-    elif player_hand.score > dealer_hand.score:
-      print("Player Wins!")
-      player_money += player_bet
+        elif seat.hand[0].score == 21:
+          seat.hand[0].status = HandStatus.TIE
+        else:
+          seat.hand[0].status = HandStatus.LOSER
+      print("Dealer has blackjack!")
     else:
-      print("Player loses.")
-      player_money -= player_bet
+      for seat in table:
+        if seat.hand[0].score == 21:
+          seat.hand[0].status = HandStatus.BLACKJACK
 
-    print("Player: " + str(player_money))
-      
+    display_table(table, True)
+
+    # Play the Seat's Hand
+    for seat in table:
+      if seat.type == SeatType.AI:
+        completed_hands = 0
+        while completed_hands != len(seat.hand):
+          current_hand = seat.hand[completed_hands]
+          
+          if current_hand.status != HandStatus.ACTIVE:
+            completed_hands += 1
+            continue
+          
+          #play_AI_hand_naive_strategy(curr_deck, table, seat, current_hand)
+          play_AI_hand_basic_strategy(curr_deck, table, seat, current_hand)
+          
+          completed_hands += 1
+          display_table(table, True)
+          
+      elif seat.type == SeatType.PLAYER:
+        completed_hands = 0
+        while completed_hands != len(seat.hand):
+          current_hand = seat.hand[completed_hands]
+          
+          if current_hand.status != HandStatus.ACTIVE:
+            completed_hands += 1
+            continue
+            
+          while current_hand.score < 21:
+            display_table(table, True)
+            
+            # Player Input
+            if len(current_hand.cards) == 2:
+              if current_hand.cards[0].card == current_hand.cards[1].card or current_hand.cards[0].value == current_hand.cards[1].value:
+                player_choice = input("Enter H to hit, D to double down, L to split, S to stand: ")
+                if (len(player_choice) != 1 or player_choice.upper() not in ("H", "D", "L", "S")):
+                  print("Invalid Choice.")
+                  continue
+              else:
+                player_choice = input("Enter H to hit, D to double down, S to stand: ")
+                if (len(player_choice) != 1 or player_choice.upper() not in ("H", "D", "S")):
+                  print("Invalid Choice.")
+                  continue
+            else:
+              player_choice = input("Enter H to hit, S to stand: ")
+              if (len(player_choice) != 1 or player_choice.upper() not in ("H", "S")):
+                print("Invalid Choice.")
+                continue
+
+            if player_choice.upper() == "H":
+              # Player Hits
+              deal_new_card(curr_deck, current_hand)
+              display_table(table, True)
+            elif player_choice.upper() == "D":
+              # Player Doubles Down
+              double_down(curr_deck, current_hand)
+              break
+            elif player_choice.upper() == "L":
+              split_card = current_hand.cards[1]
+              
+              # Create the new hand
+              if split_card.card == "A":
+                split_hand(curr_deck, seat, current_hand, split_card)
+                seat.hand[-1].status = HandStatus.WAITING
+                current_hand.status = HandStatus.WAITING
+                break
+              else:
+                split_hand(curr_deck, seat, current_hand, split_card)
+                continue
+              
+            elif player_choice.upper() == "S":
+              # Player Stands
+              current_hand.status = HandStatus.WAITING
+              break
+
+          if current_hand.score > 21:
+            current_hand.status = HandStatus.LOSER
+            
+          display_table(table, True)
+          
+          completed_hands += 1
+              
+      elif seat.type == SeatType.DEALER:
+        any_active_hands = False
+        
+        for seat in table:
+          if not any_active_hands:
+            for hand in seat.hand:
+              if hand.status == HandStatus.WAITING:
+                any_active_hands = True
+                break
+          else:
+            break
+
+        if any_active_hands:
+          while dealer_hand.score < 17:
+            deal_new_card(curr_deck, dealer_hand)
+            display_table(table, False)
+    
+    # Determine Winners/Losers
+    if dealer_hand.score > 21:
+      for seat in table:
+        for hand in seat.hand:
+          if hand.status == HandStatus.WAITING:
+            hand.status = HandStatus.WINNER
+    else:
+      for seat in table:
+        for hand in seat.hand:
+          if hand.status == HandStatus.WAITING:
+            if hand.score == dealer_hand.score:
+              hand.status = HandStatus.TIE
+            elif hand.score > dealer_hand.score:
+              hand.status = HandStatus.WINNER
+            else:
+              hand.status = HandStatus.LOSER
+
+    display_table(table, False)
+    
+    # Determine Payouts
+    out_of_money = False
+    for seat in table:
+      for hand in seat.hand:
+        if hand.status == HandStatus.BLACKJACK:
+          seat.money += hand.bet * 1.5
+        elif hand.status == HandStatus.WINNER:
+          seat.money += hand.bet
+        elif hand.status == HandStatus.LOSER:
+          seat.money -= hand.bet
+
+          if seat.type == SeatType.PLAYER and seat.money <= 0:
+            out_of_money = True
+            print("Player is out of money!")
+            
+    display_table(table, False)
+
+    if out_of_money:
+      break
+    
     if ask_continue_game():
       continue
     else:
       break
 
-blackjack_game(6)
+if __name__ == "__main__":
+  print("Initializing...")
+  while (True):
+    input_num_decks = input("How many decks would you like to play with? Press Enter to default to 6. : ")
+    if not input_num_decks:
+      num_decks = 6
+      break
+
+    try:
+      num_decks = int(input_num_decks)
+      if num_decks < 1:
+        print("Not enough decks. Please try again.")
+        continue
+      break
+    except ValueError:
+      print("Not a valid input. Please try again.")
+      continue
+
+  while (True):
+    input_seats = input("How many players (player + computer) (max 10)? Press Enter to default to 6. : ")
+    if not input_seats:
+      seats_at_table = 6
+      break
+
+    try:
+      seats_at_table = int(input_seats)
+      if seats_at_table < 1 or seats_at_table > 10:
+        print("Entered value not within 1 to 10. Please try again.")
+        continue
+      break
+    except ValueError:
+      print("Not a valid input. Please try again.")
+      continue
+
+  while (True):
+    input_player_seat = input("Which seat number for the player (index 1)? Press Enter to default to 1. : ")
+    if not input_player_seat:
+      player_seat_no = 1
+      break
+
+    try:
+      player_seat_no = int(input_player_seat)
+      if player_seat_no < 1 or player_seat_no > seats_at_table:
+        print("Entered value not within 1 to number of seats at table. Please try again.")
+        continue
+      break
+    except ValueError:
+      print("Not a valid input. Please try again.")
+
+  while (True):
+    input_money = input("How much money should the player start with (min 1000)? Press Enter to default to 1000.")
+    if not input_money:
+      player_money = 1000
+      break
+
+    try:
+      player_money = float(player_money)
+      if player_money <= 0:
+        print("Not enough money. Please try again.")
+        continue
+      break
+    except ValueError:
+      print("Not a valid input. Please try again.")
+  
+  #num_decks = 6
+  #seats_at_table = 6
+  #player_seat_no = 3
+  #player_money = 1000
+  
+  blackjack_game(num_decks, seats_at_table, player_seat_no, player_money)
