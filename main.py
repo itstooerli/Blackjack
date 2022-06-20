@@ -4,8 +4,9 @@ import copy
 import os
 from enum import Enum
 
-# TODO: Provide option to decide num_decks, initial money, table size
 # TODO: Import time to space out displays
+# TODO: Redefine main function
+# TODO: Build GUI
 
 class SeatType(Enum):
   PLAYER = 0
@@ -91,6 +92,7 @@ def setup_table(num_players, player_seat_no, player_money, ai_money):
     if player_no == player_seat_no - 1:
       table.append(Seat(SeatType.PLAYER))
       table[player_no].money = player_money
+      table[player_no].base_bet = -(-player_money // 10) ## Round-up Integer Divsion
     # Create AI seats
     else:
       table.append(Seat(SeatType.AI))
@@ -468,7 +470,7 @@ def blackjack_game(num_decks, num_players, player_seat_no, player_money):
             completed_hands += 1
             continue
             
-          while current_hand.score < 21:
+          while current_hand.score < 22:
             display_table(table, True)
             
             # Player Input
@@ -571,11 +573,11 @@ def blackjack_game(num_decks, num_players, player_seat_no, player_money):
 
           if seat.type == SeatType.PLAYER and seat.money <= 0:
             out_of_money = True
-            print("Player is out of money!")
             
     display_table(table, False)
 
     if out_of_money:
+      print("Player is out of money!")
       break
     
     if ask_continue_game():
@@ -633,14 +635,14 @@ if __name__ == "__main__":
       print("Not a valid input. Please try again.")
 
   while (True):
-    input_money = input("How much money should the player start with (min 1000)? Press Enter to default to 1000.")
+    input_money = input("How much money should the player start with (min 1000)? Press Enter to default to 1000. : ")
     if not input_money:
       player_money = 1000
       break
 
     try:
-      player_money = float(player_money)
-      if player_money <= 0:
+      player_money = float(input_money)
+      if player_money < 1:
         print("Not enough money. Please try again.")
         continue
       break
