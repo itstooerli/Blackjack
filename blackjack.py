@@ -4,10 +4,6 @@ import copy
 import os
 from enum import Enum
 
-# TODO: Import time to space out displays
-# TODO: Redefine main function
-# TODO: Build GUI
-
 class SeatType(Enum):
   PLAYER = 0
   AI = 1
@@ -635,7 +631,7 @@ if __name__ == "__main__":
       print("Not a valid input. Please try again.")
 
   while (True):
-    input_money = input("How much money should the player start with (min 1000)? Press Enter to default to 1000. : ")
+    input_money = input("How much money should the player start with (min 1)? Press Enter to default to 1000. : ")
     if not input_money:
       player_money = 1000
       break
