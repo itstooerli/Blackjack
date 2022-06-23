@@ -92,7 +92,7 @@ def setup_table(num_players, player_seat_no, player_money, ai_money):
     if player_no == player_seat_no - 1:
       table.append(Seat(SeatType.PLAYER))
       table[player_no].money = player_money
-      table[player_no].base_bet = -(-player_money // 10) ## Round-up Integer Divsion
+      table[player_no].base_bet = min(100, -(-player_money // 10)) ## 100 or Round-up Integer Division
     # Create AI seats
     else:
       table.append(Seat(SeatType.AI))
